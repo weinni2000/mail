@@ -27,14 +27,11 @@ class IrMailServer(models.Model):
         # while tracking_email_id is not needed in this implementation, it can
         # be useful for other addons extending this function to make a more
         # fine-grained decision
-        value = (
+        return (
             self.env["ir.config_parameter"]
             .sudo()
-            .get_param("mail_tracking.tracking_img_disabled", False)
+            .get_bool("mail_tracking.tracking_img_disabled")
         )
-        if isinstance(value, str):
-            return tools.str2bool(value, bool(value))
-        return bool(value)
 
     def _tracking_img_remove(self, body):
         return re.sub(
@@ -161,8 +158,15 @@ class IrMailServer(models.Model):
         except Exception as e:
             if tracking_email:
                 tracking_email.smtp_error(self, smtp_server_used, e)
-            else:
-                raise
+            # Always re-raise: `MailMail._send()` tells a successful delivery
+            # from a failed one by the exception, not by the return value.
+            # Swallowing it makes core append the recipient to `success_pids`
+            # and mark its notification as `sent` for a mail that never left,
+            # never classify a NO_VALID_RECIPIENT as `mail_email_invalid`, and
+            # leave `res` False so a failure on the *last* recipient marks the
+            # whole mail as an exception. The error is already stored on the
+            # tracking record just above, so re-raising loses nothing.
+            raise
         if message_id and tracking_email:
             vals = tracking_email._tracking_sent_prepare(
                 self, smtp_server_used, message, message_id
